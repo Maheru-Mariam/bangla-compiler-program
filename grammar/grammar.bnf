@@ -1,0 +1,64 @@
+====================================================
+Bhasha Language Grammar
+====================================================
+
+------------------------------------------------
+Part 1: EBNF (working grammar, maps to Parser.cpp)
+------------------------------------------------
+
+program        ::= { statement }
+
+statement       ::= decl_stmt
+                   | assign_stmt
+                   | if_stmt
+                   | while_stmt
+                   | print_stmt
+
+decl_stmt       ::= type identifier "=" expression ";"
+assign_stmt     ::= identifier "=" expression ";"
+if_stmt         ::= "যদি" "(" expression ")" block [ "নাহয়" block ]
+while_stmt      ::= "যতক্ষণ" "(" expression ")" block
+print_stmt      ::= "দেখাও" "(" expression ")" ";"
+
+block           ::= "{" { statement } "}"
+
+type            ::= "পূর্ণসংখ্যা" | "দশমিকসংখ্যা"
+
+expression      ::= logical_or
+
+logical_or      ::= logical_and { "||" logical_and }
+logical_and     ::= equality { "&&" equality }
+equality        ::= relational { ( "==" | "!=" ) relational }
+relational      ::= additive { ( "<" | ">" | "<=" | ">=" ) additive }
+additive        ::= multiplicative { ( "+" | "-" ) multiplicative }
+multiplicative  ::= unary { ( "*" | "/" ) unary }
+unary           ::= ( "!" | "-" ) unary
+                   | primary
+
+primary         ::= int_literal
+                   | decimal_literal
+                   | identifier
+                   | "সত্যি"
+                   | "মিথ্যা"
+                   | "(" expression ")"
+
+------------------------------------------------
+Part 2: Strict BNF (formally equivalent, required format for report)
+------------------------------------------------
+
+<program>         ::= <statement_list>
+<statement_list>  ::= <statement> <statement_list> | ε
+
+<block>           ::= "{" <statement_list> "}"
+
+<if_stmt>         ::= "যদি" "(" <expression> ")" <block>
+                     | "যদি" "(" <expression> ")" <block> "নাহয়" <block>
+
+<logical_or>      ::= <logical_and> <logical_or_tail>
+<logical_or_tail> ::= "||" <logical_and> <logical_or_tail> | ε
+
+<logical_and>     ::= <equality> <logical_and_tail>
+<logical_and_tail> ::= "&&" <equality> <logical_and_tail> | ε
+
+[... remaining tail rules for equality, relational, additive,
+     multiplicative follow the same pattern ...]
