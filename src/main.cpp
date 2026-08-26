@@ -3,6 +3,9 @@
 #include <sstream>
 #include "lexer/Token.h"
 #include "lexer/Lexer.h"
+#include "parser/Parser.h"
+#include "utils/ASTPrinter.h"
+
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -25,11 +28,10 @@ int main(int argc, char *argv[])
     SetConsoleOutputCP(CP_UTF8);
 #endif
 
-    std::string path = "../tests/programs/sample1.bhs"; // default, relative to build/
-
+    std::string path = "../tests/programs/sample1.bhs";
     if (argc > 1)
     {
-        path = argv[1]; // allow overriding via command line
+        path = argv[1];
     }
 
     std::string sourceCode = readFile(path);
@@ -37,14 +39,13 @@ int main(int argc, char *argv[])
     Lexer lexer(sourceCode);
     std::vector<Token> tokens = lexer.tokenize();
 
-    std::cout << "Total tokens: " << tokens.size() << "\n\n";
+    std::cout << "=== Tokens: " << tokens.size() << " ===\n\n";
 
-    for (const Token &tok : tokens)
-    {
-        std::cout << "[Line " << tok.line << "] "
-                  << tokenTypeName(tok.type)
-                  << "  \"" << tok.lexeme << "\"\n";
-    }
+    Parser parser(tokens);
+    ASTNodePtr ast = parser.parseProgram();
+
+    std::cout << "\n=== AST ===\n\n";
+    ASTPrinter::print(ast.get());
 
     return 0;
 }

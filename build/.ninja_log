@@ -8,3 +8,9 @@
 17	1064	8094353526166973	CMakeFiles/banglac.dir/src/lexer/Lexer.cpp.obj	60d24127cea00d4c
 4	1754	8094369226857011	CMakeFiles/banglac.dir/src/main.cpp.obj	79c6a57469cc3a13
 1757	2066	8094369244442954	banglac.exe	b825db624758936
+305	2597	8094398541281739	CMakeFiles/banglac.dir/src/utils/Utf8Utils.cpp.obj	82b0867d906d0ada
+298	2641	8094398541212618	CMakeFiles/banglac.dir/src/utils/ASTPrinter.cpp.obj	1c7afc9b9020371a
+105	2915	8094398539281563	CMakeFiles/banglac.dir/src/lexer/Lexer.cpp.obj	60d24127cea00d4c
+291	3332	8094398541136860	CMakeFiles/banglac.dir/src/parser/Parser.cpp.obj	4757d5739996fc27
+282	3695	8094398541051404	CMakeFiles/banglac.dir/src/main.cpp.obj	79c6a57469cc3a13
+3695	4662	8094398575173423	banglac.exe	b825db624758936

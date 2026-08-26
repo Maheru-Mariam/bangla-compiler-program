@@ -21,6 +21,14 @@ namespace Utf8Utils
     // should occupy, based on its leading byte pattern (1, 2, 3, or 4).
     int codepointLength(unsigned char firstByte);
 
+    // Converts a string of Bangla digits (e.g. "৫২") into a normal int.
+    // Also tolerates a leading '-' for negative numbers, just in case.
+    int banglaDigitsToInt(const std::string &text);
+
+    // Converts a string of Bangla digits with an optional '.' decimal
+    // point (e.g. "৩.১৪") into a normal double.
+    double banglaDigitsToDouble(const std::string &text);
+
 }
 
 #endif

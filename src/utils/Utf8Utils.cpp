@@ -1,4 +1,5 @@
 #include "Utf8Utils.h"
+#include <stdexcept>
 
 namespace Utf8Utils
 {
@@ -43,6 +44,89 @@ namespace Utf8Utils
         }
 
         return result;
+    }
+
+    // Maps each Bangla digit codepoint to its numeric value (০->0 ... ৯->9)
+    static int singleBanglaDigitValue(const Utf8Char &c)
+    {
+        static const std::vector<std::string> digits = {
+            "০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"};
+        for (size_t i = 0; i < digits.size(); ++i)
+        {
+            if (c == digits[i])
+                return static_cast<int>(i);
+        }
+        return -1; // not a Bangla digit
+    }
+
+    int banglaDigitsToInt(const std::string &text)
+    {
+        std::vector<Utf8Char> chars = splitCodepoints(text);
+        bool negative = false;
+        int result = 0;
+        size_t start = 0;
+
+        if (!chars.empty() && chars[0] == "-")
+        {
+            negative = true;
+            start = 1;
+        }
+
+        for (size_t i = start; i < chars.size(); ++i)
+        {
+            int digit = singleBanglaDigitValue(chars[i]);
+            if (digit == -1)
+            {
+                throw std::runtime_error("Invalid Bangla digit in number: " + text);
+            }
+            result = result * 10 + digit;
+        }
+
+        return negative ? -result : result;
+    }
+
+    double banglaDigitsToDouble(const std::string &text)
+    {
+        std::vector<Utf8Char> chars = splitCodepoints(text);
+        bool negative = false;
+        double result = 0.0;
+        size_t i = 0;
+
+        if (!chars.empty() && chars[0] == "-")
+        {
+            negative = true;
+            i = 1;
+        }
+
+        // integer part
+        for (; i < chars.size() && chars[i] != "."; ++i)
+        {
+            int digit = singleBanglaDigitValue(chars[i]);
+            if (digit == -1)
+            {
+                throw std::runtime_error("Invalid Bangla digit in number: " + text);
+            }
+            result = result * 10 + digit;
+        }
+
+        // fractional part
+        if (i < chars.size() && chars[i] == ".")
+        {
+            i++; // skip '.'
+            double fraction = 0.1;
+            for (; i < chars.size(); ++i)
+            {
+                int digit = singleBanglaDigitValue(chars[i]);
+                if (digit == -1)
+                {
+                    throw std::runtime_error("Invalid Bangla digit in number: " + text);
+                }
+                result += digit * fraction;
+                fraction *= 0.1;
+            }
+        }
+
+        return negative ? -result : result;
     }
 
 }
