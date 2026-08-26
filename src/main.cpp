@@ -36,11 +36,19 @@ int main(int argc, char *argv[])
 
     std::string sourceCode = readFile(path);
 
+    // ---------- Lexer ----------
     Lexer lexer(sourceCode);
     std::vector<Token> tokens = lexer.tokenize();
 
     std::cout << "=== Tokens: " << tokens.size() << " ===\n\n";
+    for (const Token &tok : tokens)
+    {
+        std::cout << "[Line " << tok.line << "] "
+                  << tokenTypeName(tok.type)
+                  << "  \"" << tok.lexeme << "\"\n";
+    }
 
+    // ---------- Parser ----------
     Parser parser(tokens);
     ASTNodePtr ast = parser.parseProgram();
 
