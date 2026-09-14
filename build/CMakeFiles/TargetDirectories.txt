@@ -1,3 +1,0 @@
-E:/bangla-compiler/build/CMakeFiles/banglac.dir
-E:/bangla-compiler/build/CMakeFiles/edit_cache.dir
-E:/bangla-compiler/build/CMakeFiles/rebuild_cache.dir
