@@ -5,6 +5,8 @@
 #include "lexer/Lexer.h"
 #include "parser/Parser.h"
 #include "utils/ASTPrinter.h"
+#include "semantic/TypeChecker.h"
+#include "error/ErrorReporter.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -54,6 +56,21 @@ int main(int argc, char *argv[])
 
     std::cout << "\n=== AST ===\n\n";
     ASTPrinter::print(ast.get());
+
+    // ---------- Semantic Analysis (Type Checking) ----------
+    ErrorReporter errorReporter;
+    TypeChecker typeChecker(errorReporter);
+    typeChecker.check(ast.get());
+
+    std::cout << "\n=== Semantic Analysis ===\n\n";
+    if (errorReporter.hasErrors())
+    {
+        std::cout << "Type checking failed with the following errors:\n\n";
+        errorReporter.printAll();
+        return 1; // non-zero exit so scripts/CI can detect failure
+    }
+
+    std::cout << "No type errors found.\n";
 
     return 0;
 }

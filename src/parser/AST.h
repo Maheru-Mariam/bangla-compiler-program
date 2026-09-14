@@ -10,6 +10,7 @@
 class ASTNode
 {
 public:
+    int line = 0; // source line this node came from, for error messages
     virtual ~ASTNode() = default;
 };
 
