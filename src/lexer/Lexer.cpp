@@ -8,9 +8,14 @@ static const std::unordered_map<std::string, TokenType> keywords = {
     {"যদি", TokenType::IF},
     {"নাহয়", TokenType::ELSE},
     {"যতক্ষণ", TokenType::WHILE},
+    {"প্রতি", TokenType::FOR},
+    {"থেকে", TokenType::TO},
+    {"ধাপ", TokenType::STEP},
     {"দেখাও", TokenType::PRINT},
     {"পূর্ণসংখ্যা", TokenType::TYPE_INT},
     {"দশমিকসংখ্যা", TokenType::TYPE_DECIMAL},
+    {"লেখা", TokenType::TYPE_TEXT},
+    {"বুলিয়ান", TokenType::TYPE_BOOL},
     {"সত্যি", TokenType::TRUE_LIT},
     {"মিথ্যা", TokenType::FALSE_LIT}};
 
@@ -18,7 +23,8 @@ static const std::unordered_map<std::string, TokenType> keywords = {
 static const std::vector<std::string> banglaDigits = {
     "০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"};
 
-Lexer::Lexer(const std::string &sourceCode) : pos(0), line(1)
+Lexer::Lexer(const std::string &sourceCode, ErrorReporter &reporter)
+    : pos(0), line(1), errors(reporter)
 {
     chars = Utf8Utils::splitCodepoints(sourceCode);
 }
@@ -73,6 +79,16 @@ bool Lexer::isAsciiDigit(const Utf8Char &c) const
     return c.size() == 1 && c[0] >= '0' && c[0] <= '9';
 }
 
+// English letters are not valid in identifiers, but we detect them so we
+// can give a clear error instead of "unexpected character" one at a time.
+static bool isAsciiLetter(const Utf8Char &c)
+{
+    if (c.size() != 1)
+        return false;
+    char ch = c[0];
+    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+}
+
 int Lexer::banglaDigitValue(const Utf8Char &c) const
 {
     for (size_t i = 0; i < banglaDigits.size(); ++i)
@@ -83,21 +99,72 @@ int Lexer::banglaDigitValue(const Utf8Char &c) const
     return -1;
 }
 
+// Decodes one UTF-8 character back into its Unicode codepoint, so we can
+// test it against the Bangla ranges below.
+static unsigned int codepointOf(const Utf8Char &c)
+{
+    if (c.empty())
+        return 0;
+    unsigned char b0 = static_cast<unsigned char>(c[0]);
+    if ((b0 & 0x80) == 0x00)
+        return b0;
+    if ((b0 & 0xE0) == 0xC0 && c.size() >= 2)
+        return ((b0 & 0x1Fu) << 6) |
+               (static_cast<unsigned char>(c[1]) & 0x3Fu);
+    if ((b0 & 0xF0) == 0xE0 && c.size() >= 3)
+        return ((b0 & 0x0Fu) << 12) |
+               ((static_cast<unsigned char>(c[1]) & 0x3Fu) << 6) |
+               (static_cast<unsigned char>(c[2]) & 0x3Fu);
+    if ((b0 & 0xF8) == 0xF0 && c.size() >= 4)
+        return ((b0 & 0x07u) << 18) |
+               ((static_cast<unsigned char>(c[1]) & 0x3Fu) << 12) |
+               ((static_cast<unsigned char>(c[2]) & 0x3Fu) << 6) |
+               (static_cast<unsigned char>(c[3]) & 0x3Fu);
+    return 0;
+}
+
+// A Bangla letter (consonant or independent vowel): the only thing an
+// identifier is allowed to START with.
+static bool isBanglaLetter(const Utf8Char &c)
+{
+    unsigned int cp = codepointOf(c);
+    return (cp >= 0x0985 && cp <= 0x098C) || // vowels অ - ঌ
+           (cp >= 0x098F && cp <= 0x0990) || // এ ঐ
+           (cp >= 0x0993 && cp <= 0x09A8) || // ও - ন
+           (cp >= 0x09AA && cp <= 0x09B0) || // প - র
+           (cp == 0x09B2) ||                 // ল
+           (cp >= 0x09B6 && cp <= 0x09B9) || // শ - হ
+           (cp == 0x09BD) ||                 // ঽ avagraha
+           (cp == 0x09CE) ||                 // ৎ khanda ta
+           (cp >= 0x09DC && cp <= 0x09DD) || // ড় ঢ়
+           (cp >= 0x09DF && cp <= 0x09E1) || // য় ঌ ৡ
+           (cp >= 0x09F0 && cp <= 0x09F1);   // ৰ ৱ
+}
+
+// Vowel signs (কারচিহ্ন), hasant, candrabindu and friends. These never
+// start a word but are everywhere inside one — গণনা ends with 'া'.
+static bool isBanglaMark(const Utf8Char &c)
+{
+    unsigned int cp = codepointOf(c);
+    return (cp >= 0x0981 && cp <= 0x0983) || // ঁ ং ঃ
+           (cp == 0x09BC) ||                 // nukta
+           (cp >= 0x09BE && cp <= 0x09C4) || // া ি ী ু ূ ৃ ৄ
+           (cp >= 0x09C7 && cp <= 0x09C8) || // ে ৈ
+           (cp >= 0x09CB && cp <= 0x09CD) || // ো ৌ ্ (hasant)
+           (cp == 0x09D7) ||                 // au length mark
+           (cp >= 0x09E2 && cp <= 0x09E3);   // vowel signs ৢ ৣ
+}
+
+// Can this character appear INSIDE an identifier (after the first letter)?
+// Bangla letters, Bangla vowel marks, Bangla digits ০-৯, and underscore.
+//
+// Identifiers in this language are deliberately Bangla-only. That keeps
+// the language true to its purpose, and it also means a generated Python
+// name can never collide with a Python keyword like 'print' or 'class',
+// since none of those can be written in Bangla letters.
 bool Lexer::isIdentifierChar(const Utf8Char &c) const
 {
-    // Anything that's not whitespace, not a digit, and not a recognized
-    // ASCII operator/punctuation character counts as part of an identifier.
-    // This lets Bangla letters (multi-byte) through freely.
-    if (isWhitespace(c) || isBanglaDigit(c) || isAsciiDigit(c))
-        return false;
-    if (c.size() == 1)
-    {
-        char ch = c[0];
-        static const std::string symbols = "+-*/=<>!&|(){};.#";
-        if (symbols.find(ch) != std::string::npos)
-            return false;
-    }
-    return true;
+    return isBanglaLetter(c) || isBanglaMark(c) || isBanglaDigit(c) || c == "_";
 }
 
 // ---------- whitespace & comments ----------
@@ -178,6 +245,75 @@ Token Lexer::scanNumber()
                  text, startLine);
 }
 
+// Scans a text literal: "..." with \n, \t, \" and \\ escapes.
+// The token's lexeme holds the DECODED text (escapes already applied),
+// so later stages never have to think about escapes again.
+Token Lexer::scanString()
+{
+    int startLine = line;
+    advance(); // consume the opening quote
+    std::string text;
+
+    while (!isAtEnd() && peek() != "\"")
+    {
+        Utf8Char c = peek();
+
+        if (c == "\n")
+        {
+            // A newline inside a text literal is almost always a missing
+            // closing quote, so stop here rather than swallowing the file.
+            errors.report(startLine, "Text literal is not closed before the end of the line",
+                          "Lexical error");
+            return Token(TokenType::STRING_LITERAL, text, startLine);
+        }
+
+        if (c == "\\")
+        {
+            advance(); // consume the backslash
+            Utf8Char esc = peek();
+            if (esc == "n")
+            {
+                text += "\n";
+                advance();
+            }
+            else if (esc == "t")
+            {
+                text += "\t";
+                advance();
+            }
+            else if (esc == "\"")
+            {
+                text += "\"";
+                advance();
+            }
+            else if (esc == "\\")
+            {
+                text += "\\";
+                advance();
+            }
+            else
+            {
+                errors.report(line, "Unknown escape sequence '\\" + esc + "' in text literal",
+                              "Lexical error");
+                advance();
+            }
+            continue;
+        }
+
+        text += advance();
+    }
+
+    if (isAtEnd())
+    {
+        errors.report(startLine, "Text literal is not closed before the end of the file",
+                      "Lexical error");
+        return Token(TokenType::STRING_LITERAL, text, startLine);
+    }
+
+    advance(); // consume the closing quote
+    return Token(TokenType::STRING_LITERAL, text, startLine);
+}
+
 Token Lexer::scanOperatorOrPunctuation()
 {
     int startLine = line;
@@ -243,6 +379,8 @@ Token Lexer::scanOperatorOrPunctuation()
             advance();
             return Token(TokenType::AND, "&&", startLine);
         }
+        errors.report(startLine, "Unexpected character '&' (did you mean '&&'?)",
+                      "Lexical error");
         return Token(TokenType::UNKNOWN, "&", startLine);
 
     case '|':
@@ -251,9 +389,14 @@ Token Lexer::scanOperatorOrPunctuation()
             advance();
             return Token(TokenType::OR, "||", startLine);
         }
+        errors.report(startLine, "Unexpected character '|' (did you mean '||'?)",
+                      "Lexical error");
         return Token(TokenType::UNKNOWN, "|", startLine);
 
     default:
+        // Unknown symbol: record it and keep scanning so that a single
+        // stray character does not hide every later error in the file.
+        errors.report(startLine, "Unexpected character '" + c + "'", "Lexical error");
         return Token(TokenType::UNKNOWN, c, startLine);
     }
 }
@@ -276,13 +419,34 @@ std::vector<Token> Lexer::tokenize()
 
         Utf8Char c = peek();
 
-        if (isBanglaDigit(c))
+        if (c == "\"")
+        {
+            tokens.push_back(scanString());
+        }
+        else if (isBanglaDigit(c))
         {
             tokens.push_back(scanNumber());
         }
-        else if (isIdentifierChar(c))
+        else if (isBanglaLetter(c))
         {
+            // Identifiers must begin with a Bangla letter.
             tokens.push_back(scanIdentifierOrKeyword());
+        }
+        else if (isAsciiLetter(c))
+        {
+            // English names are not part of this language. Consume the whole
+            // word so we report it once, with a message that explains why.
+            std::string word;
+            int startLine = line;
+            while (!isAtEnd() && (isAsciiLetter(peek()) || isAsciiDigit(peek()) || peek() == "_"))
+            {
+                word += advance();
+            }
+            errors.report(startLine,
+                          "Identifiers must be written in Bangla; '" + word +
+                              "' uses English letters",
+                          "Lexical error");
+            tokens.push_back(Token(TokenType::UNKNOWN, word, startLine));
         }
         else
         {

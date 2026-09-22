@@ -5,11 +5,12 @@
 #include <vector>
 #include "Token.h"
 #include "../utils/Utf8Utils.h"
+#include "../error/ErrorReporter.h"
 
 class Lexer
 {
 public:
-    explicit Lexer(const std::string &sourceCode);
+    Lexer(const std::string &sourceCode, ErrorReporter &reporter);
 
     // Runs the full scan and returns every token found, ending in END_OF_FILE
     std::vector<Token> tokenize();
@@ -18,6 +19,7 @@ private:
     std::vector<Utf8Char> chars; // the source, split into individual UTF-8 characters
     size_t pos;                  // index into 'chars' of the character we're about to read
     int line;                    // current line number, for error messages
+    ErrorReporter &errors;       // collects lexical errors instead of printing them
 
     // --- low-level cursor helpers ---
     bool isAtEnd() const;
@@ -35,6 +37,7 @@ private:
     void skipWhitespaceAndComments();
     Token scanIdentifierOrKeyword();
     Token scanNumber();
+    Token scanString(); // text literal: "..."
     Token scanOperatorOrPunctuation();
 
     int banglaDigitValue(const Utf8Char &c) const; // ০->0 ... ৯->9

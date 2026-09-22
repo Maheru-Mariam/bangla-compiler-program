@@ -10,9 +10,14 @@ enum class TokenType
     IF,           // যদি
     ELSE,         // নাহয়
     WHILE,        // যতক্ষণ
+    FOR,          // প্রতি
+    TO,           // থেকে
+    STEP,         // ধাপ
     PRINT,        // দেখাও
     TYPE_INT,     // পূর্ণসংখ্যা
     TYPE_DECIMAL, // দশমিকসংখ্যা
+    TYPE_TEXT,    // লেখা
+    TYPE_BOOL,    // বুলিয়ান
     TRUE_LIT,     // সত্যি
     FALSE_LIT,    // মিথ্যা
 
@@ -20,6 +25,7 @@ enum class TokenType
     IDENTIFIER,
     INT_LITERAL,
     DECIMAL_LITERAL,
+    STRING_LITERAL,
 
     // Operators
     PLUS,
@@ -71,12 +77,22 @@ inline std::string tokenTypeName(TokenType type)
         return "ELSE";
     case TokenType::WHILE:
         return "WHILE";
+    case TokenType::FOR:
+        return "FOR";
+    case TokenType::TO:
+        return "TO";
+    case TokenType::STEP:
+        return "STEP";
     case TokenType::PRINT:
         return "PRINT";
     case TokenType::TYPE_INT:
         return "TYPE_INT";
     case TokenType::TYPE_DECIMAL:
         return "TYPE_DECIMAL";
+    case TokenType::TYPE_TEXT:
+        return "TYPE_TEXT";
+    case TokenType::TYPE_BOOL:
+        return "TYPE_BOOL";
     case TokenType::TRUE_LIT:
         return "TRUE_LIT";
     case TokenType::FALSE_LIT:
@@ -87,6 +103,8 @@ inline std::string tokenTypeName(TokenType type)
         return "INT_LITERAL";
     case TokenType::DECIMAL_LITERAL:
         return "DECIMAL_LITERAL";
+    case TokenType::STRING_LITERAL:
+        return "STRING_LITERAL";
     case TokenType::PLUS:
         return "PLUS";
     case TokenType::MINUS:

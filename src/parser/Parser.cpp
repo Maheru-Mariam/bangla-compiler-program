@@ -3,7 +3,24 @@
 #include <stdexcept>
 #include <iostream>
 
-Parser::Parser(const std::vector<Token> &toks) : tokens(toks), pos(0) {}
+Parser::Parser(const std::vector<Token> &toks, ErrorReporter &reporter)
+    : tokens(toks), pos(0), errors(reporter)
+{
+    // The lexer always appends END_OF_FILE, but guard anyway so that
+    // peek()/previous() can never index an empty vector.
+    if (tokens.empty())
+    {
+        tokens.emplace_back(TokenType::END_OF_FILE, "", 1);
+    }
+}
+
+// Human-readable description of a token, for error messages.
+static std::string describe(const Token &token)
+{
+    if (token.type == TokenType::END_OF_FILE)
+        return "end of file";
+    return "\"" + token.lexeme + "\"";
+}
 
 // ---------------- cursor helpers ----------------
 
@@ -14,6 +31,13 @@ const Token &Parser::peek() const
 
 const Token &Parser::previous() const
 {
+    // Guard the very first token: if nothing has been consumed yet there
+    // is no previous token, and tokens[pos - 1] would wrap around to a
+    // huge index and read out of bounds.
+    if (pos == 0)
+    {
+        return tokens[0];
+    }
     return tokens[pos - 1];
 }
 
@@ -52,23 +76,53 @@ const Token &Parser::expect(TokenType type, const std::string &errorMessage)
     {
         return advance();
     }
-    std::cerr << "Parse error at line " << peek().line << ": " << errorMessage
-              << " (got \"" << peek().lexeme << "\")\n";
-    throw std::runtime_error(errorMessage);
+    // Report at the end of what we did parse successfully, not at the
+    // token that surprised us: a missing ';' belongs to the line the
+    // statement was written on, not the line of the next statement.
+    int reportLine = (pos > 0) ? previous().line : peek().line;
+    throw error(peek(), errorMessage, reportLine);
+}
+
+ParseError Parser::error(const Token &token, const std::string &message, int line)
+{
+    errors.report(line >= 0 ? line : token.line,
+                  message + ", but found " + describe(token),
+                  "Syntax error");
+    return ParseError(message);
 }
 
 bool Parser::isTypeKeyword(TokenType type) const
 {
-    return type == TokenType::TYPE_INT || type == TokenType::TYPE_DECIMAL;
+    return type == TokenType::TYPE_INT ||
+           type == TokenType::TYPE_DECIMAL ||
+           type == TokenType::TYPE_TEXT ||
+           type == TokenType::TYPE_BOOL;
+}
+
+bool Parser::isStatementStart(TokenType type) const
+{
+    return isTypeKeyword(type) ||
+           type == TokenType::IDENTIFIER ||
+           type == TokenType::IF ||
+           type == TokenType::WHILE ||
+           type == TokenType::FOR ||
+           type == TokenType::PRINT;
 }
 
 void Parser::synchronize()
 {
     while (!isAtEnd())
     {
-        if (previous().type == TokenType::SEMICOLON)
+        // We just consumed the ';' that ended the broken statement.
+        if (pos > 0 && previous().type == TokenType::SEMICOLON)
             return;
+        // Leave the '}' for parseBlock to consume.
         if (check(TokenType::RBRACE))
+            return;
+        // A token that can only begin a statement is a safe restart point.
+        // Stopping here means one bad statement no longer swallows the
+        // statement that follows it.
+        if (isStatementStart(peek().type))
             return;
         advance();
     }
@@ -83,13 +137,24 @@ ASTNodePtr Parser::parseProgram()
 
     while (!isAtEnd())
     {
+        size_t positionBefore = pos;
         try
         {
             program->statements.push_back(parseStatement());
         }
-        catch (const std::runtime_error &)
+        catch (const ParseError &)
         {
             synchronize();
+            // Guarantee forward progress. If the failed statement and the
+            // recovery both left the cursor exactly where it was, consume
+            // the offending token so the same error cannot repeat forever,
+            // then skip ahead to the next real boundary so that one bad
+            // line does not produce a cascade of errors.
+            if (pos == positionBefore)
+            {
+                advance();
+                synchronize();
+            }
         }
     }
 
@@ -116,12 +181,16 @@ ASTNodePtr Parser::parseStatement()
     {
         return parseWhileStmt();
     }
+    if (check(TokenType::FOR))
+    {
+        return parseForStmt();
+    }
     if (check(TokenType::PRINT))
     {
         return parsePrintStmt();
     }
 
-    throw std::runtime_error("Expected a statement");
+    throw error(peek(), "Expected the start of a statement");
 }
 
 ASTNodePtr Parser::parseDeclStmt()
@@ -182,6 +251,35 @@ ASTNodePtr Parser::parseWhileStmt()
     return node;
 }
 
+// প্রতি (গণনা = ০ থেকে ৫) { ... }
+// প্রতি (গণনা = ০ থেকে ১০ ধাপ ২) { ... }
+ASTNodePtr Parser::parseForStmt()
+{
+    int startLine = peek().line;
+    expect(TokenType::FOR, "Expected 'প্রতি'");
+    expect(TokenType::LPAREN, "Expected '(' after 'প্রতি'");
+
+    std::string name = expect(TokenType::IDENTIFIER, "Expected a loop variable name").lexeme;
+    expect(TokenType::ASSIGN, "Expected '=' after the loop variable");
+    ASTNodePtr from = parseExpression();
+    expect(TokenType::TO, "Expected 'থেকে' after the starting value");
+    ASTNodePtr to = parseExpression();
+
+    ASTNodePtr by = nullptr;
+    if (match(TokenType::STEP))
+    {
+        by = parseExpression();
+    }
+
+    expect(TokenType::RPAREN, "Expected ')' after the loop range");
+    ASTNodePtr body = parseBlock();
+
+    auto node = std::make_unique<ForNode>(name, std::move(from), std::move(to),
+                                          std::move(by), std::move(body));
+    node->line = startLine;
+    return node;
+}
+
 ASTNodePtr Parser::parsePrintStmt()
 {
     int startLine = peek().line;
@@ -204,10 +302,25 @@ ASTNodePtr Parser::parseBlock()
 
     while (!check(TokenType::RBRACE) && !isAtEnd())
     {
-        block->statements.push_back(parseStatement());
+        size_t positionBefore = pos;
+        try
+        {
+            block->statements.push_back(parseStatement());
+        }
+        catch (const ParseError &)
+        {
+            // Recover inside the block, so one bad statement does not
+            // discard the rest of the block along with it.
+            synchronize();
+            if (pos == positionBefore)
+            {
+                advance();
+                synchronize();
+            }
+        }
     }
 
-    expect(TokenType::RBRACE, "Expected '}'");
+    expect(TokenType::RBRACE, "Expected '}' to close this block");
     return block;
 }
 
@@ -327,17 +440,45 @@ ASTNodePtr Parser::parsePrimary()
 {
     if (check(TokenType::INT_LITERAL))
     {
-        int lineNum = peek().line;
-        int value = Utf8Utils::banglaDigitsToInt(advance().lexeme);
+        const Token &tok = peek();
+        int lineNum = tok.line;
+        int value = 0;
+        try
+        {
+            value = Utf8Utils::banglaDigitsToInt(tok.lexeme);
+        }
+        catch (const std::exception &)
+        {
+            throw error(tok, "Invalid integer literal '" + tok.lexeme + "'");
+        }
+        advance();
         auto node = std::make_unique<IntLiteralNode>(value);
         node->line = lineNum;
         return node;
     }
     if (check(TokenType::DECIMAL_LITERAL))
     {
-        int lineNum = peek().line;
-        double value = Utf8Utils::banglaDigitsToDouble(advance().lexeme);
+        const Token &tok = peek();
+        int lineNum = tok.line;
+        double value = 0.0;
+        try
+        {
+            value = Utf8Utils::banglaDigitsToDouble(tok.lexeme);
+        }
+        catch (const std::exception &)
+        {
+            throw error(tok, "Invalid decimal literal '" + tok.lexeme + "'");
+        }
+        advance();
         auto node = std::make_unique<DecimalLiteralNode>(value);
+        node->line = lineNum;
+        return node;
+    }
+    if (check(TokenType::STRING_LITERAL))
+    {
+        int lineNum = peek().line;
+        std::string text = advance().lexeme;
+        auto node = std::make_unique<StringLiteralNode>(text);
         node->line = lineNum;
         return node;
     }
@@ -372,5 +513,5 @@ ASTNodePtr Parser::parsePrimary()
         return expr;
     }
 
-    throw std::runtime_error("Expected an expression");
+    throw error(peek(), "Expected an expression");
 }

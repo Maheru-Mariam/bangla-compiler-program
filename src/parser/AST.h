@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include "../semantic/Types.h"
 
 // Base class for every node in the tree.
 // Every specific node type (IfNode, BinOpNode, etc.) inherits from this.
@@ -11,6 +12,14 @@ class ASTNode
 {
 public:
     int line = 0; // source line this node came from, for error messages
+
+    // Filled in by the TypeChecker and carried through the Optimizer, so
+    // the CodeGenerator knows what kind of value each node produces.
+    // For expressions this is the type of the value. For DeclNode and
+    // AssignNode it is the declared type of the variable being written to.
+    // Stays UNKNOWN until type checking runs.
+    ValueType inferredType = ValueType::UNKNOWN;
+
     virtual ~ASTNode() = default;
 };
 
@@ -34,6 +43,15 @@ class DecimalLiteralNode : public ASTNode
 public:
     double value;
     explicit DecimalLiteralNode(double v) : value(v) {}
+};
+
+// A literal text value, e.g. "হ্যালো". 'value' holds the decoded text
+// (escape sequences already applied by the lexer).
+class StringLiteralNode : public ASTNode
+{
+public:
+    std::string value;
+    explicit StringLiteralNode(const std::string &v) : value(v) {}
 };
 
 // A boolean literal: সত্যি or মিথ্যা
@@ -128,6 +146,25 @@ public:
 
     WhileNode(ASTNodePtr cond, ASTNodePtr b)
         : condition(std::move(cond)), body(std::move(b)) {}
+};
+
+// Range loop: প্রতি (নাম = start থেকে end [ধাপ step]) block
+//
+// The loop variable is implicitly পূর্ণসংখ্যা and lives only inside the
+// loop. 'end' is exclusive, matching Python's range().
+class ForNode : public ASTNode
+{
+public:
+    std::string varName;
+    ASTNodePtr start;
+    ASTNodePtr end;
+    ASTNodePtr step; // nullptr when no ধাপ clause was given (step of 1)
+    ASTNodePtr body;
+
+    ForNode(const std::string &name, ASTNodePtr from, ASTNodePtr to,
+            ASTNodePtr by, ASTNodePtr b)
+        : varName(name), start(std::move(from)), end(std::move(to)),
+          step(std::move(by)), body(std::move(b)) {}
 };
 
 // Print statement: দেখাও(expression);

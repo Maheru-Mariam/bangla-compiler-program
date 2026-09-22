@@ -1,64 +1,251 @@
-====================================================
-Bhasha Language Grammar
-====================================================
+# Language Grammar (BNF)
 
-------------------------------------------------
-Part 1: EBNF (working grammar, maps to Parser.cpp)
-------------------------------------------------
+The complete grammar of the source language, in Backus-Naur Form. The
+grammar below matches the implemented recursive-descent parser exactly:
+each non-terminal corresponds to one parse function.
 
-program        ::= { statement }
+Notation: `<x>` is a non-terminal, `"x"` is a literal token, `|` separates
+alternatives, and `ε` is the empty production.
 
-statement       ::= decl_stmt
-                   | assign_stmt
-                   | if_stmt
-                   | while_stmt
-                   | print_stmt
+---
 
-decl_stmt       ::= type identifier "=" expression ";"
-assign_stmt     ::= identifier "=" expression ";"
-if_stmt         ::= "যদি" "(" expression ")" block [ "নাহয়" block ]
-while_stmt      ::= "যতক্ষণ" "(" expression ")" block
-print_stmt      ::= "দেখাও" "(" expression ")" ";"
+## 1. Program and statements
 
-block           ::= "{" { statement } "}"
+```bnf
+<program>          ::= <statement_list>
 
-type            ::= "পূর্ণসংখ্যা" | "দশমিকসংখ্যা"
+<statement_list>   ::= <statement> <statement_list>
+                     | ε
 
-expression      ::= logical_or
+<statement>        ::= <decl_stmt>
+                     | <assign_stmt>
+                     | <if_stmt>
+                     | <while_stmt>
+                     | <for_stmt>
+                     | <print_stmt>
 
-logical_or      ::= logical_and { "||" logical_and }
-logical_and     ::= equality { "&&" equality }
-equality        ::= relational { ( "==" | "!=" ) relational }
-relational      ::= additive { ( "<" | ">" | "<=" | ">=" ) additive }
-additive        ::= multiplicative { ( "+" | "-" ) multiplicative }
-multiplicative  ::= unary { ( "*" | "/" ) unary }
-unary           ::= ( "!" | "-" ) unary
-                   | primary
+<block>            ::= "{" <statement_list> "}"
+```
 
-primary         ::= int_literal
-                   | decimal_literal
-                   | identifier
-                   | "সত্যি"
-                   | "মিথ্যা"
-                   | "(" expression ")"
+### Declaration and assignment
 
-------------------------------------------------
-Part 2: Strict BNF (formally equivalent, required format for report)
-------------------------------------------------
+```bnf
+<decl_stmt>        ::= <type> <identifier> "=" <expression> ";"
 
-<program>         ::= <statement_list>
-<statement_list>  ::= <statement> <statement_list> | ε
+<type>             ::= "পূর্ণসংখ্যা"
+                     | "দশমিকসংখ্যা"
+                     | "লেখা"
+                     | "বুলিয়ান"
 
-<block>           ::= "{" <statement_list> "}"
+<assign_stmt>      ::= <identifier> "=" <expression> ";"
+```
 
-<if_stmt>         ::= "যদি" "(" <expression> ")" <block>
+### Control flow
+
+```bnf
+<if_stmt>          ::= "যদি" "(" <expression> ")" <block>
                      | "যদি" "(" <expression> ")" <block> "নাহয়" <block>
 
-<logical_or>      ::= <logical_and> <logical_or_tail>
-<logical_or_tail> ::= "||" <logical_and> <logical_or_tail> | ε
+<while_stmt>       ::= "যতক্ষণ" "(" <expression> ")" <block>
 
-<logical_and>     ::= <equality> <logical_and_tail>
-<logical_and_tail> ::= "&&" <equality> <logical_and_tail> | ε
+<for_stmt>         ::= "প্রতি" "(" <identifier> "=" <expression>
+                             "থেকে" <expression> ")" <block>
+                     | "প্রতি" "(" <identifier> "=" <expression>
+                             "থেকে" <expression>
+                             "ধাপ" <expression> ")" <block>
+```
 
-[... remaining tail rules for equality, relational, additive,
-     multiplicative follow the same pattern ...]
+### Output
+
+```bnf
+<print_stmt>       ::= "দেখাও" "(" <expression> ")" ";"
+```
+
+---
+
+## 2. Expressions
+
+Each level of the expression grammar is one precedence level. The
+left-recursive productions encode left associativity: `ক - খ - গ` parses
+as `(ক - খ) - গ`.
+
+```bnf
+<expression>       ::= <logical_or>
+
+<logical_or>       ::= <logical_or> "||" <logical_and>
+                     | <logical_and>
+
+<logical_and>      ::= <logical_and> "&&" <equality>
+                     | <equality>
+
+<equality>         ::= <equality> <equality_op> <relational>
+                     | <relational>
+
+<relational>       ::= <relational> <relational_op> <additive>
+                     | <additive>
+
+<additive>         ::= <additive> <additive_op> <multiplicative>
+                     | <multiplicative>
+
+<multiplicative>   ::= <multiplicative> <multiplicative_op> <unary>
+                     | <unary>
+
+<unary>            ::= "!" <unary>
+                     | "-" <unary>
+                     | <primary>
+
+<primary>          ::= <int_literal>
+                     | <decimal_literal>
+                     | <string_literal>
+                     | <bool_literal>
+                     | <identifier>
+                     | "(" <expression> ")"
+```
+
+### Operators
+
+```bnf
+<equality_op>       ::= "==" | "!="
+<relational_op>     ::= "<" | ">" | "<=" | ">="
+<additive_op>       ::= "+" | "-"
+<multiplicative_op> ::= "*" | "/"
+```
+
+### Precedence summary
+
+From lowest to highest binding:
+
+| Level | Operators | Associativity |
+|---|---|---|
+| 1 | `\|\|` | left |
+| 2 | `&&` | left |
+| 3 | `==` `!=` | left |
+| 4 | `<` `>` `<=` `>=` | left |
+| 5 | `+` `-` | left |
+| 6 | `*` `/` | left |
+| 7 | `!` `-` (unary) | right |
+| 8 | `( )` literals, identifiers | — |
+
+---
+
+## 3. Lexical grammar
+
+These productions describe the tokens the lexer produces. Whitespace and
+comments separate tokens and are otherwise discarded.
+
+```bnf
+<bool_literal>     ::= "সত্যি" | "মিথ্যা"
+
+<int_literal>      ::= <digit_seq>
+
+<decimal_literal>  ::= <digit_seq> "." <digit_seq>
+                     | <digit_seq> "."
+
+<digit_seq>        ::= <bangla_digit>
+                     | <bangla_digit> <digit_seq>
+
+<bangla_digit>     ::= "০" | "১" | "২" | "৩" | "৪"
+                     | "৫" | "৬" | "৭" | "৮" | "৯"
+```
+
+### Identifiers
+
+Identifiers are Bangla-only by design. An identifier begins with a Bangla
+letter and may then contain Bangla letters, Bangla vowel signs and other
+combining marks, Bangla digits, and the underscore.
+
+```bnf
+<identifier>       ::= <bangla_letter> <ident_tail>
+
+<ident_tail>       ::= <ident_char> <ident_tail>
+                     | ε
+
+<ident_char>       ::= <bangla_letter>
+                     | <bangla_mark>
+                     | <bangla_digit>
+                     | "_"
+```
+
+`<bangla_letter>` is any Unicode codepoint in the Bengali block that is a
+consonant or an independent vowel:
+
+```
+U+0985–U+098C, U+098F–U+0990, U+0993–U+09A8, U+09AA–U+09B0,
+U+09B2, U+09B6–U+09B9, U+09BD, U+09CE, U+09DC–U+09DD,
+U+09DF–U+09E1, U+09F0–U+09F1
+```
+
+`<bangla_mark>` is any vowel sign (কার), hasant, candrabindu, anusvara,
+visarga or nukta:
+
+```
+U+0981–U+0983, U+09BC, U+09BE–U+09C4, U+09C7–U+09C8,
+U+09CB–U+09CD, U+09D7, U+09E2–U+09E3
+```
+
+### Text literals
+
+```bnf
+<string_literal>   ::= '"' <text_char_list> '"'
+
+<text_char_list>   ::= <text_char> <text_char_list>
+                     | ε
+
+<text_char>        ::= <any_character_except_quote_backslash_or_newline>
+                     | <escape>
+
+<escape>           ::= "\n" | "\t" | "\" '"' | "\\"
+```
+
+### Comments and whitespace
+
+```bnf
+<comment>          ::= "#" <any_characters_to_end_of_line>
+
+<whitespace>       ::= " " | "\t" | "\r" | "\n"
+```
+
+---
+
+## 4. Notes on the grammar
+
+**Dangling else.** `<if_stmt>` has an optional `নাহয়` branch. Because both
+branches of `যদি` are `<block>` rather than a bare statement, an `নাহয়`
+can only attach to the `যদি` whose block it follows, so the classic
+dangling-else ambiguity does not arise.
+
+**Mandatory braces.** Every body is a `<block>`, so `যদি (…) দেখাও(ক);`
+without braces is a syntax error. This removes a second source of
+ambiguity and keeps the grammar unambiguous throughout.
+
+**Statement terminators.** Declarations, assignments and print statements
+end in `;`. Control-flow statements end in `}` and take no semicolon.
+
+**The `প্রতি` range.** The ending value is exclusive, matching the
+generated `range()` call: `প্রতি (গণনা = ০ থেকে ৫)` runs five times, with
+গণনা taking ০, ১, ২, ৩, ৪. The `ধাপ` clause may be negative for a
+countdown.
+
+**Left recursion.** The expression rules are written left-recursively to
+document associativity. A recursive-descent parser cannot execute left
+recursion directly, so the implementation uses the standard equivalent
+loop — parse one operand, then repeatedly consume an operator and another
+operand — which produces the same left-associated tree.
+
+---
+
+## 5. Rules enforced outside the grammar
+
+The following are context-sensitive and so are checked by the type
+checker rather than expressed in the grammar:
+
+- A variable must be declared before it is used, and may not be
+  redeclared in the same scope.
+- The condition of `যদি` and `যতক্ষণ` must be `বুলিয়ান`.
+- Arithmetic operators require numeric operands. `+` also joins two
+  `লেখা` values; mixing `লেখা` with a number is an error.
+- Division always produces `দশমিকসংখ্যা`, even for two integers.
+- An assignment must match the declared type, except that a
+  `পূর্ণসংখ্যা` value may widen into a `দশমিকসংখ্যা` variable.
+- The `প্রতি` bounds and `ধাপ` must be `পূর্ণসংখ্যা`; a literal `ধাপ ০`
+  is rejected; the loop variable must not reuse an existing name.

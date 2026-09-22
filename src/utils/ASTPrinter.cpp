@@ -1,4 +1,5 @@
 #include "ASTPrinter.h"
+#include "NumberFormat.h"
 #include <iostream>
 
 namespace ASTPrinter
@@ -17,6 +18,8 @@ namespace ASTPrinter
             return "If";
         if (auto n = dynamic_cast<const WhileNode *>(node))
             return "While";
+        if (auto n = dynamic_cast<const ForNode *>(node))
+            return "For (" + n->varName + ")";
         if (auto n = dynamic_cast<const PrintNode *>(node))
             return "Print";
         if (auto n = dynamic_cast<const BlockNode *>(node))
@@ -28,7 +31,9 @@ namespace ASTPrinter
         if (auto n = dynamic_cast<const IntLiteralNode *>(node))
             return "IntLiteral (" + std::to_string(n->value) + ")";
         if (auto n = dynamic_cast<const DecimalLiteralNode *>(node))
-            return "DecimalLiteral (" + std::to_string(n->value) + ")";
+            return "DecimalLiteral (" + formatDecimalLiteral(n->value) + ")";
+        if (auto n = dynamic_cast<const StringLiteralNode *>(node))
+            return "StringLiteral (\"" + n->value + "\")";
         if (auto n = dynamic_cast<const BoolLiteralNode *>(node))
             return std::string("BoolLiteral (") + (n->value ? "true" : "false") + ")";
         if (auto n = dynamic_cast<const IdentifierNode *>(node))
@@ -64,6 +69,14 @@ namespace ASTPrinter
         else if (auto n = dynamic_cast<const WhileNode *>(node))
         {
             children.push_back(n->condition.get());
+            children.push_back(n->body.get());
+        }
+        else if (auto n = dynamic_cast<const ForNode *>(node))
+        {
+            children.push_back(n->start.get());
+            children.push_back(n->end.get());
+            if (n->step)
+                children.push_back(n->step.get());
             children.push_back(n->body.get());
         }
         else if (auto n = dynamic_cast<const PrintNode *>(node))
