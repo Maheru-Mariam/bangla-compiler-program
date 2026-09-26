@@ -10,6 +10,7 @@
 #include "error/ErrorReporter.h"
 #include "optimizer/Optimizer.h"
 #include "codegen/CodeGenerator.h"
+#include "ir/IRGenerator.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -107,6 +108,18 @@ static int run(int argc, char *argv[])
     std::cout << "\n=== Optimizer: Optimized AST ===\n\n";
     ASTNodePtr optimized = Optimizer::optimize(std::move(ast));
     ASTPrinter::print(optimized.get());
+
+    // ---------- Intermediate Code ----------
+    // Three-address code: every expression broken into single operations
+    // joined by temporaries, and all control flow turned into explicit
+    // jumps. The Python backend reads the AST directly, so this stage is
+    // for inspection — it is the form a backend targeting assembly or
+    // bytecode would consume.
+    std::cout << "\n=== Intermediate Code: Three-Address Code ===\n\n";
+    IRGenerator irgen;
+    std::vector<Instruction> ir = irgen.generate(optimized.get());
+    std::cout << IRGenerator::toText(ir);
+    std::cout << "\n(" << ir.size() << " instructions)\n";
 
     // ---------- Code Generation ----------
     std::cout << "\n=== Code Generator: Generated Python ===\n\n";

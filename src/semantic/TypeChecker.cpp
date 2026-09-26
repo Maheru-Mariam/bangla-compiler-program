@@ -66,12 +66,28 @@ void TypeChecker::checkDecl(DeclNode *node)
     ValueType declaredType = typeFromKeyword(node->varType);
     ValueType valueType = inferType(node->value.get());
 
-    if (!symbols.declare(node->name, declaredType))
+    // Python has no block scoping. If we allowed an inner block to declare a
+    // name that already exists outside it, the generated Python would simply
+    // overwrite the outer variable — so our scoping rule would be a lie.
+    // Rejecting the name outright keeps the language and its output honest.
+    if (symbols.declaredInCurrentScope(node->name))
     {
         errors.report(node->line, "Variable '" + node->name + "' is already declared in this scope",
                       "Type error");
         return;
     }
+
+    ValueType shadowed;
+    if (symbols.lookup(node->name, shadowed))
+    {
+        errors.report(node->line,
+                      "Variable '" + node->name +
+                          "' has the same name as a variable in an enclosing scope; choose another name",
+                      "Type error");
+        return;
+    }
+
+    symbols.declare(node->name, declaredType);
 
     if (!isAssignable(declaredType, valueType))
     {

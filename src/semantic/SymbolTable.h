@@ -41,6 +41,15 @@ public:
         return true;
     }
 
+    // Is this name declared in the CURRENT (innermost) scope only?
+    // Used to tell a redeclaration apart from shadowing an outer name.
+    bool declaredInCurrentScope(const std::string &name) const
+    {
+        if (scopes.empty())
+            return false;
+        return scopes.back().find(name) != scopes.back().end();
+    }
+
     // Looks up a variable starting from the innermost scope outward.
     // Returns true and sets outType if found.
     bool lookup(const std::string &name, ValueType &outType) const

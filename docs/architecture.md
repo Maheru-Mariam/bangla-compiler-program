@@ -18,6 +18,7 @@ the previous one and produces a single, well-defined artefact:
 | Syntax analysis | token stream | AST | `Parser` |
 | Semantic analysis | AST | annotated AST | `TypeChecker` |
 | Optimization | annotated AST | simplified AST | `Optimizer` |
+| Intermediate code | simplified AST | three-address code | `IRGenerator` |
 | Code generation | simplified AST | Python source text | `CodeGenerator` |
 | Error reporting | messages from every stage | diagnostics | `ErrorReporter` |
 
@@ -41,6 +42,8 @@ flowchart LR
     PAR -->|AST| TC[TypeChecker]
     TC -->|"annotated AST"| OPT[Optimizer]
     OPT -->|"simplified AST"| CG[CodeGenerator]
+    OPT -.->|"simplified AST"| IR[IRGenerator]
+    IR -.-> TAC["three-address code<br/>(inspection)"]
     CG --> OUT["output.py"]
     LEX -.-> ER[ErrorReporter]
     PAR -.-> ER
@@ -164,10 +167,12 @@ classDiagram
     Parser ..> ErrorReporter : reports to
 ```
 
-### AST class hierarchy
+### AST: expression nodes
 
 Every node inherits from `ASTNode`, which carries the source line (for
 error messages) and the type the checker inferred (for code generation).
+The hierarchy is split across two diagrams for legibility; both inherit
+from the same base.
 
 ```mermaid
 classDiagram
@@ -175,7 +180,6 @@ classDiagram
         <<abstract>>
         +int line
         +ValueType inferredType
-        +~ASTNode()
     }
 
     class IntLiteralNode { +int value }
@@ -192,6 +196,30 @@ classDiagram
         +string op
         +ASTNodePtr operand
     }
+
+    ASTNode <|-- IntLiteralNode
+    ASTNode <|-- DecimalLiteralNode
+    ASTNode <|-- StringLiteralNode
+    ASTNode <|-- BoolLiteralNode
+    ASTNode <|-- IdentifierNode
+    ASTNode <|-- BinOpNode
+    ASTNode <|-- UnaryOpNode
+```
+
+`BinOpNode` and `UnaryOpNode` own their operands, so an expression such as
+`(২ + ৩) * ৪` becomes a tree whose shape alone encodes precedence — no
+parentheses are stored.
+
+### AST: statement nodes
+
+```mermaid
+classDiagram
+    class ASTNode {
+        <<abstract>>
+        +int line
+        +ValueType inferredType
+    }
+
     class DeclNode {
         +string varType
         +string name
@@ -221,13 +249,6 @@ classDiagram
     class PrintNode { +ASTNodePtr expression }
     class ProgramNode { +vector~ASTNodePtr~ statements }
 
-    ASTNode <|-- IntLiteralNode
-    ASTNode <|-- DecimalLiteralNode
-    ASTNode <|-- StringLiteralNode
-    ASTNode <|-- BoolLiteralNode
-    ASTNode <|-- IdentifierNode
-    ASTNode <|-- BinOpNode
-    ASTNode <|-- UnaryOpNode
     ASTNode <|-- DeclNode
     ASTNode <|-- AssignNode
     ASTNode <|-- BlockNode
@@ -362,7 +383,105 @@ value is stored in a `দশমিকসংখ্যা` variable, it emits `5.0
 
 ---
 
-## 6. Support classes
+## 6. Intermediate representation
+
+`IRGenerator` lowers the optimized tree into three-address code: a flat
+list of instructions in which every operation has at most three operands,
+expressions are broken apart using temporaries (`t1`, `t2`, …), and all
+control flow is explicit jumps between labels.
+
+```mermaid
+classDiagram
+    class IRGenerator {
+        -vector~Instruction~ code
+        -int tempCount
+        -int labelCount
+        +generate(ASTNode* root) vector~Instruction~
+        +toText(vector~Instruction~) string$
+        -newTemp() string
+        -newLabel() string
+        -emit(Instruction) void
+        -genStatement(ASTNode*) void
+        -genProgram(ProgramNode*) void
+        -genBlock(BlockNode*) void
+        -genDecl(DeclNode*) void
+        -genAssign(AssignNode*) void
+        -genIf(IfNode*) void
+        -genWhile(WhileNode*) void
+        -genFor(ForNode*) void
+        -genPrint(PrintNode*) void
+        -genExpr(ASTNode*) string
+        -widenIfNeeded(ASTNode*, ValueType, string, int) string
+    }
+
+    class Instruction {
+        +IROp kind
+        +string op
+        +string result
+        +string arg1
+        +string arg2
+        +int line
+    }
+
+    class IROp {
+        <<enumeration>>
+        Assign
+        Binary
+        Unary
+        Label
+        Goto
+        IfFalseGoto
+        Print
+        Comment
+    }
+
+    IRGenerator ..> Instruction : produces
+    Instruction *-- IROp
+    IRGenerator ..> ASTNode : reads
+```
+
+A nested expression flattens depth-first, so `বার্তা + " " + নাম` becomes
+two instructions joined by a temporary:
+
+```
+t1 = বার্তা + " "
+t2 = t1 + নাম
+পূর্ণ = t2
+```
+
+and a `যতক্ষণ` loop becomes a test, a conditional exit and a jump back:
+
+```
+L1:
+    t4 = গণনা < সীমা
+    ifFalse t4 goto L2
+    print গণনা
+    t5 = গণনা + 1
+    গণনা = t5
+    goto L1
+L2:
+```
+
+A `প্রতি` loop is lowered the same way, with the bounds evaluated once
+before the loop and the comparison chosen from the sign of the step, so a
+countdown tests with `>` rather than `<`. The int-to-decimal widening the
+type checker permits appears as an explicit cast — `t1 = (দশমিকসংখ্যা)ক`
+— rather than happening silently.
+
+**Where this sits in the pipeline.** The Python backend reads the
+annotated AST directly, so the AST is this compiler's primary
+intermediate representation and the three-address code is an additional
+form produced for inspection. That is a deliberate choice rather than an
+omission: three-address code exists to bridge tree-shaped source and flat
+target code, and Python is not flat — it has expressions, structured
+control flow and indentation-based blocks. Lowering to jumps and then
+reconstructing `if` and `while` from them would be work in both
+directions, and would make the generated Python unreadable, costing the
+language one of its main teaching arguments. A backend targeting
+assembly, bytecode or WebAssembly would consume this representation
+instead.
+
+## 7. Support classes
 
 ```mermaid
 classDiagram
@@ -402,7 +521,7 @@ ASCII, converting `৩.১৪` to a `double` needs its own routine.
 
 ---
 
-## 7. Class summary
+## 8. Class summary
 
 | Class | Responsibility | Collaborators |
 |---|---|---|
@@ -413,6 +532,8 @@ ASCII, converting `৩.১৪` to a `double` needs its own routine.
 | `TypeChecker` | type rules, scope rules, annotation | `SymbolTable`, `ValueType`, `ErrorReporter` |
 | `SymbolTable` | scoped variable declarations | `ValueType` |
 | `Optimizer` | constant folding | `ASTNode` |
+| `IRGenerator` | AST → three-address code | `ASTNode`, `Instruction` |
+| `Instruction` | one three-address instruction | `IROp` |
 | `CodeGenerator` | AST → Python source | `ASTNode`, `ValueType` |
 | `ErrorReporter` | collect and print diagnostics | — |
 | `ASTPrinter` | render the tree for inspection | `ASTNode` |
