@@ -1,6 +1,5 @@
 #include "Optimizer.h"
 #include <memory>
-#include <limits>
 
 namespace Optimizer
 {
@@ -58,19 +57,8 @@ namespace Optimizer
             {
                 return std::make_unique<DecimalLiteralNode>(result);
             }
-            else
-            {
-                // Casting an out-of-range double to int is undefined
-                // behavior. Rather than risk that, leave the expression
-                // unfolded: Python's arbitrary-precision ints will still
-                // compute the correct result at runtime.
-                if (result < static_cast<double>(std::numeric_limits<int>::min()) ||
-                    result > static_cast<double>(std::numeric_limits<int>::max()))
-                {
-                    return nullptr;
-                }
-                return std::make_unique<IntLiteralNode>(static_cast<int>(result));
-            }
+
+            return std::make_unique<IntLiteralNode>(static_cast<int>(result));
             // note: '/' never reaches the int branch, since division is
             // always decimal — so no truncate-vs-floor mismatch is possible.
         }
@@ -78,7 +66,7 @@ namespace Optimizer
         return nullptr; // not an arithmetic op, don't fold
     }
 
-    ASTNodePtr optimize(ASTNodePtr node, ErrorReporter &errors)
+    ASTNodePtr optimize(ASTNodePtr node)
     {
         if (!node)
             return nullptr;
@@ -92,7 +80,7 @@ namespace Optimizer
             result->inferredType = type;
             for (auto &stmt : n->statements)
             {
-                result->statements.push_back(optimize(std::move(stmt), errors));
+                result->statements.push_back(optimize(std::move(stmt)));
             }
             return result;
         }
@@ -104,14 +92,14 @@ namespace Optimizer
             result->inferredType = type;
             for (auto &stmt : n->statements)
             {
-                result->statements.push_back(optimize(std::move(stmt), errors));
+                result->statements.push_back(optimize(std::move(stmt)));
             }
             return result;
         }
 
         if (auto n = dynamic_cast<DeclNode *>(node.get()))
         {
-            auto value = optimize(std::move(n->value), errors);
+            auto value = optimize(std::move(n->value));
             auto result = std::make_unique<DeclNode>(n->varType, n->name, std::move(value));
             result->line = line;
             result->inferredType = type;
@@ -120,7 +108,7 @@ namespace Optimizer
 
         if (auto n = dynamic_cast<AssignNode *>(node.get()))
         {
-            auto value = optimize(std::move(n->value), errors);
+            auto value = optimize(std::move(n->value));
             auto result = std::make_unique<AssignNode>(n->name, std::move(value));
             result->line = line;
             result->inferredType = type;
@@ -129,9 +117,9 @@ namespace Optimizer
 
         if (auto n = dynamic_cast<IfNode *>(node.get()))
         {
-            auto cond = optimize(std::move(n->condition), errors);
-            auto thenB = optimize(std::move(n->thenBlock), errors);
-            auto elseB = n->elseBlock ? optimize(std::move(n->elseBlock), errors) : nullptr;
+            auto cond = optimize(std::move(n->condition));
+            auto thenB = optimize(std::move(n->thenBlock));
+            auto elseB = n->elseBlock ? optimize(std::move(n->elseBlock)) : nullptr;
             auto result = std::make_unique<IfNode>(std::move(cond), std::move(thenB), std::move(elseB));
             result->line = line;
             result->inferredType = type;
@@ -140,8 +128,8 @@ namespace Optimizer
 
         if (auto n = dynamic_cast<WhileNode *>(node.get()))
         {
-            auto cond = optimize(std::move(n->condition), errors);
-            auto body = optimize(std::move(n->body), errors);
+            auto cond = optimize(std::move(n->condition));
+            auto body = optimize(std::move(n->body));
             auto result = std::make_unique<WhileNode>(std::move(cond), std::move(body));
             result->line = line;
             result->inferredType = type;
@@ -150,26 +138,10 @@ namespace Optimizer
 
         if (auto n = dynamic_cast<ForNode *>(node.get()))
         {
-            auto from = optimize(std::move(n->start), errors);
-            auto to = optimize(std::move(n->end), errors);
-            auto by = n->step ? optimize(std::move(n->step), errors) : nullptr;
-
-            // The TypeChecker can only reject a step of zero when it is
-            // written as a literal. A step that only folds down to zero
-            // here (e.g. ০+০) would otherwise reach codegen as
-            // range(..., 0), which fails at runtime instead of compile time.
-            if (by)
-            {
-                if (auto lit = dynamic_cast<IntLiteralNode *>(by.get()))
-                {
-                    if (lit->value == 0)
-                    {
-                        errors.report(line, "The 'ধাপ' value cannot be zero", "Type error");
-                    }
-                }
-            }
-
-            auto body = optimize(std::move(n->body), errors);
+            auto from = optimize(std::move(n->start));
+            auto to = optimize(std::move(n->end));
+            auto by = n->step ? optimize(std::move(n->step)) : nullptr;
+            auto body = optimize(std::move(n->body));
             auto result = std::make_unique<ForNode>(n->varName, std::move(from), std::move(to),
                                                     std::move(by), std::move(body));
             result->line = line;
@@ -179,7 +151,7 @@ namespace Optimizer
 
         if (auto n = dynamic_cast<PrintNode *>(node.get()))
         {
-            auto expr = optimize(std::move(n->expression), errors);
+            auto expr = optimize(std::move(n->expression));
             auto result = std::make_unique<PrintNode>(std::move(expr));
             result->line = line;
             result->inferredType = type;
@@ -188,8 +160,8 @@ namespace Optimizer
 
         if (auto n = dynamic_cast<BinOpNode *>(node.get()))
         {
-            n->left = optimize(std::move(n->left), errors);
-            n->right = optimize(std::move(n->right), errors);
+            n->left = optimize(std::move(n->left));
+            n->right = optimize(std::move(n->right));
 
             if (auto folded = tryFoldBinOp(n))
             {
@@ -200,7 +172,7 @@ namespace Optimizer
 
         if (auto n = dynamic_cast<UnaryOpNode *>(node.get()))
         {
-            n->operand = optimize(std::move(n->operand), errors);
+            n->operand = optimize(std::move(n->operand));
 
             // fold unary minus on a literal, e.g. -৫ -> IntLiteral(-5)
             if (n->op == "-")
