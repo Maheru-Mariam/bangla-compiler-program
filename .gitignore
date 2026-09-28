@@ -4,3 +4,5 @@ build/
 *.o
 CMakeCache.txt
 CMakeFiles/
+.DS_Store
+.vscode/
